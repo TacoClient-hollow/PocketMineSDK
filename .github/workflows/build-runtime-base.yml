@@ -19,12 +19,6 @@ jobs:
           repository: termux/termux-packages
           path: termux-packages
 
-      - name: Install package-builder prerequisites
-        working-directory: termux-packages
-        run: |
-          sed -i 's/python3\.14-venv/python3-venv/g' scripts/setup-ubuntu.sh
-          ./scripts/setup-ubuntu.sh
-
       - name: Configure PocketBuild private prefix
         working-directory: termux-packages
         run: |
@@ -44,8 +38,13 @@ jobs:
           PY
 
       - name: Build custom Android execution base
-        working-directory: termux-packages
-        run: ./build-package.sh -a aarch64 termux-exec bash coreutils
+        run: |
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
+            -w /home/builder/termux-packages \
+            termux/package-builder \
+            ./build-package.sh -a aarch64 termux-exec bash coreutils
 
       - name: Extract runtime base
         run: |
