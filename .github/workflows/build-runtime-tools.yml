@@ -1,0 +1,81 @@
+name: Build PocketBuild Compiler Runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arm64-compiler-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check out Termux package recipes
+        uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: termux-packages
+
+      - name: Configure PocketBuild private prefix
+        working-directory: termux-packages
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('scripts/properties.sh')
+          text = path.read_text()
+          changes = {
+            'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
+            'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
+            'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
+          }
+          for old, new in changes.items():
+              assert old in text, old
+              text = text.replace(old, new, 1)
+          path.write_text(text)
+          PY
+
+      - name: Build Android-native compiler tools
+        run: |
+          docker run --rm --privileged \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
+            -w /home/builder/termux-packages \
+            termux/package-builder \
+            ./build-package.sh -a aarch64 \
+            termux-exec bash coreutils openjdk-21 gradle git cmake ninja clang aapt apksigner
+
+      - name: Assemble PocketBuild runtime layout
+        run: |
+          set -euo pipefail
+          mkdir -p runtime-root runtime-stage/bin
+          find termux-packages/output -type f -name '*.deb' -print0 | while IFS= read -r -d '' pkg; do
+            dpkg-deb -x "$pkg" runtime-root
+          done
+          prefix=runtime-root/data/data/io.sphynix.pocketbuild/files/runtime
+          test -x "$prefix/usr/bin/bash"
+          test -x "$prefix/usr/lib/jvm/java-21-openjdk/bin/java"
+          cp -a "$prefix/usr" runtime-stage/
+          cat > runtime-stage/bin/pocketbuild <<'EOF'
+          #!/system/bin/sh
+          set -eu
+          RUNTIME="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+          export PREFIX="$RUNTIME"
+          export PATH="$RUNTIME/usr/bin:$PATH"
+          exec "$RUNTIME/usr/bin/gradle" "$@"
+          EOF
+          chmod 755 runtime-stage/bin/pocketbuild
+          cat > runtime-stage/runtime.json <<'EOF'
+          {"schema":1,"applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild","components":["openjdk-21","gradle","git","cmake","ninja","clang","aapt","apksigner"]}
+          EOF
+          tar -C runtime-stage -czf pocketbuild-runtime-arm64-v8a.tar.gz .
+
+      - name: Upload compiler runtime artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pocketbuild-compiler-runtime-arm64-v8a
+          path: pocketbuild-runtime-arm64-v8a.tar.gz
+          if-no-files-found: error
+          retention-days: 7
