@@ -39,7 +39,7 @@ jobs:
 
       - name: Build custom Android execution base
         run: |
-          docker run --rm \
+          docker run --rm --privileged \
             --user "$(id -u):$(id -g)" \
             -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
             -w /home/builder/termux-packages \
