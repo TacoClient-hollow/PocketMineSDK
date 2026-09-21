@@ -45,7 +45,7 @@ jobs:
             -w /home/builder/termux-packages \
             termux/package-builder \
             ./build-package.sh -a aarch64 \
-            termux-exec bash coreutils openjdk-21 gradle git cmake ninja clang aapt apksigner
+            termux-exec bash coreutils openjdk-21 gradle git cmake ninja clang aapt apksigner libsndfile
 
       - name: Assemble PocketBuild runtime layout
         run: |
