@@ -37,6 +37,7 @@ jobs:
           replacement = (
               "\t\t\ttermux_run_build-package\n"
               "\t\t\tif [[ \"$TERMUX_ON_DEVICE_BUILD\" == \"false\" && \"$TERMUX_REPO_PKG_FORMAT\" == \"debian\" ]]; then\n"
+              "\t\t\t\tread -r DEP_ARCH DEP_VERSION DEP_VERSION_PAC DEP_ON_DEVICE_NOT_SUPPORTED < <(termux_extract_dep_info \"$PKG\" \"${PKG_DIR}\")\n"
               "\t\t\t\tbuilt_dep=\"$(find \"$TERMUX_OUTPUT_DIR\" -maxdepth 1 -type f -name \"${PKG}_*_${DEP_ARCH}.deb\" -print -quit)\"\n"
               "\t\t\t\t[[ -n \"$built_dep\" ]] || termux_error_exit \"locally built dependency $PKG was not found\"\n"
               "\t\t\t\tmkdir -p \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
