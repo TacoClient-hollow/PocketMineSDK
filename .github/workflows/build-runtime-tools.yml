@@ -3,6 +3,7 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+  actions: read
 jobs:
   arm64-compiler-runtime:
     runs-on: ubuntu-24.04
@@ -14,23 +15,65 @@ jobs:
         with:
           repository: termux/termux-packages
           path: termux-packages
-      - name: Configure PocketBuild private prefix
+      - name: Download verified runtime foundation
+        uses: actions/download-artifact@v4
+        with:
+          name: pocketbuild-runtime-foundation-arm64-v8a
+          run-id: 35679047220
+          github-token: ${{ github.token }}
+          path: foundation-artifact
+      - name: Restore foundation packages
+        run: |
+          set -euo pipefail
+          mkdir -p termux-packages/output
+          tar -xzf foundation-artifact/pocketbuild-runtime-foundation-arm64-v8a.tar.gz -C termux-packages/output
+          find termux-packages/output -type f -name '*.deb' -print
+      - name: Configure custom build and local dependencies
         working-directory: termux-packages
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/properties.sh')
-          text = path.read_text()
+          properties = Path('scripts/properties.sh')
+          text = properties.read_text()
           changes = {
-            'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
-            'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
-            'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
+              'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
+              'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
+              'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
           }
           for old, new in changes.items():
               assert old in text, old
               text = text.replace(old, new, 1)
-          path.write_text(text)
+          properties.write_text(text)
+
+          dependencies = Path('scripts/build/termux_step_get_dependencies.sh')
+          text = dependencies.read_text()
+          needle = "\t\t\ttermux_run_build-package\n\t\tfi\n\tdone < <(./scripts/buildorder.py"
+          replacement = (
+              "\t\t\ttermux_run_build-package\n"
+              "\t\t\tif [[ \"$TERMUX_ON_DEVICE_BUILD\" == \"false\" && \"$TERMUX_REPO_PKG_FORMAT\" == \"debian\" ]]; then\n"
+              "\t\t\t\tread -r DEP_ARCH DEP_VERSION DEP_VERSION_PAC DEP_ON_DEVICE_NOT_SUPPORTED < <(termux_extract_dep_info \"$PKG\" \"${PKG_DIR}\")\n"
+              "\t\t\t\tbuilt_dep=\"$(find \"$TERMUX_OUTPUT_DIR\" -maxdepth 1 -type f -name \"${PKG}_*_${DEP_ARCH}.deb\" -print -quit)\"\n"
+              "\t\t\t\t[[ -n \"$built_dep\" ]] || termux_error_exit \"locally built dependency $PKG was not found\"\n"
+              "\t\t\t\tmkdir -p \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
+              "\t\t\t\t(\n"
+              "\t\t\t\t\tcd \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
+              "\t\t\t\t\tar p \"$built_dep\" data.tar.xz | tar xJ --no-overwrite-dir --transform='s#^.$#data#' -C /\n"
+              "\t\t\t\t)\n"
+              "\t\t\tfi\n"
+              "\t\tfi\n"
+              "\tdone < <(./scripts/buildorder.py"
+          )
+          assert needle in text
+          dependencies.write_text(text.replace(needle, replacement, 1))
           PY
+      - name: Seed custom prefix from foundation packages
+        run: |
+          docker run --rm --privileged \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
+            -w /home/builder/termux-packages \
+            termux/package-builder \
+            bash -lc 'set -eu; cache=/home/builder/.termux-build/_cache-aarch64; mkdir -p "$cache"; for pkg in output/*.deb; do ar p "$pkg" data.tar.xz | tar xJ --no-overwrite-dir --transform="s#^.$#data#" -C "$cache"; done'
       - name: Build Android-native compiler tools
         run: |
           docker run --rm --privileged \
@@ -38,8 +81,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
             -w /home/builder/termux-packages \
             termux/package-builder \
-            ./build-package.sh -a aarch64 \
-            termux-exec bash coreutils libsndfile openjdk-21 gradle git cmake ninja clang aapt apksigner
+            ./build-package.sh -a aarch64 openjdk-21 gradle git cmake ninja clang aapt apksigner
       - name: Assemble PocketBuild runtime layout
         run: |
           set -euo pipefail
@@ -70,4 +112,4 @@ jobs:
           name: pocketbuild-compiler-runtime-arm64-v8a
           path: pocketbuild-runtime-arm64-v8a.tar.gz
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 14
