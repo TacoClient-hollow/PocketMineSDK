@@ -1,127 +1,56 @@
 name: Build PocketBuild Compiler Runtime
-on:
-  workflow_dispatch:
-permissions:
-  contents: read
-  actions: read
+on: [workflow_dispatch]
+permissions: {contents: read}
 jobs:
-  arm64-compiler-runtime:
+  arm64-runtime:
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - name: Check out Termux package recipes
-        uses: actions/checkout@v4
-        with:
-          repository: termux/termux-packages
-          path: termux-packages
-      - name: Download verified runtime foundation
-        uses: actions/download-artifact@v4
-        with:
-          name: pocketbuild-runtime-foundation-arm64-v8a
-          run-id: 35679047220
-          github-token: ${{ github.token }}
-          path: foundation-artifact
-      - name: Restore foundation packages
+      - run: sudo apt-get update && sudo apt-get install -y patchelf
+      - name: Download prebuilt Termux packages
         run: |
-          set -euo pipefail
-          mkdir -p termux-packages/output
-          tar -xzf foundation-artifact/pocketbuild-runtime-foundation-arm64-v8a.tar.gz -C termux-packages/output
-          find termux-packages/output -type f -name '*.deb' -print
-      - name: Configure custom build and local dependencies
-        working-directory: termux-packages
-        run: |
+          mkdir debs
           python3 - <<'PY'
-          from pathlib import Path
-          properties = Path('scripts/properties.sh')
-          text = properties.read_text()
-          changes = {
-              'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
-              'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
-              'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
-          }
-          for old, new in changes.items():
-              assert old in text, old
-              text = text.replace(old, new, 1)
-          properties.write_text(text)
-
-          dependencies = Path('scripts/build/termux_step_get_dependencies.sh')
-          text = dependencies.read_text()
-          needle = "\t\t\ttermux_run_build-package\n\t\tfi\n\tdone < <(./scripts/buildorder.py"
-          replacement = (
-              "\t\t\ttermux_run_build-package\n"
-              "\t\t\tif [[ \"$TERMUX_ON_DEVICE_BUILD\" == \"false\" && \"$TERMUX_REPO_PKG_FORMAT\" == \"debian\" ]]; then\n"
-              "\t\t\t\tread -r DEP_ARCH DEP_VERSION DEP_VERSION_PAC DEP_ON_DEVICE_NOT_SUPPORTED < <(termux_extract_dep_info \"$PKG\" \"${PKG_DIR}\")\n"
-              "\t\t\t\tbuilt_dep=\"$(find \"$TERMUX_OUTPUT_DIR\" -maxdepth 1 -type f -name \"${PKG}_*_${DEP_ARCH}.deb\" -print -quit)\"\n"
-              "\t\t\t\t[[ -n \"$built_dep\" ]] || termux_error_exit \"locally built dependency $PKG was not found\"\n"
-              "\t\t\t\tmkdir -p \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
-              "\t\t\t\t(\n"
-              "\t\t\t\t\tcd \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
-              "\t\t\t\t\tar p \"$built_dep\" data.tar.xz | tar xJ --no-overwrite-dir -C /\n"
-              "\t\t\t\t)\n"
-              "\t\t\tfi\n"
-              "\t\tfi\n"
-              "\tdone < <(./scripts/buildorder.py"
-          )
-          assert needle in text
-          dependencies.write_text(text.replace(needle, replacement, 1))
+          import urllib.request
+          base='https://packages.termux.dev/apt/termux-main/'
+          index=urllib.request.urlopen(base+'dists/stable/main/binary-aarch64/Packages').read().decode()
+          items={}
+          for block in index.split(chr(10)*2):
+            d={}
+            for line in block.splitlines():
+              if ': ' in line:
+                k,v=line.split(': ',1); d[k]=v
+            if 'Package' in d: items[d['Package']]=d
+          todo=['openjdk-21','gradle','git','cmake','ninja','clang','aapt','apksigner']; got=set()
+          while todo:
+            n=todo.pop()
+            if n in got: continue
+            p=items[n]; got.add(n)
+            for key in ['Pre-Depends','Depends']:
+              for x in p.get(key,'').split(','):
+                q=x.strip().split('|')[0].split(' ')[0]
+                if q and q not in got: todo.append(q)
+          for n in got:
+            p=items[n]; urllib.request.urlretrieve(base+p['Filename'],'debs/'+p['Filename'].rsplit('/',1)[-1])
           PY
-      - name: Seed custom prefix from foundation packages
+      - name: Package runtime
         run: |
-          docker run --rm --privileged \
-            --user "$(id -u):$(id -g)" \
-            -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
-            -w /home/builder/termux-packages \
-            termux/package-builder \
-            bash -lc 'set -eu
-              cache=/home/builder/.termux-build/_cache-aarch64
-              legacy="$cache/data/data/com.termux/files"
-              target="$cache/data/data/io.sphynix.pocketbuild/files/runtime"
-              mkdir -p "$cache"
-              for pkg in output/*.deb; do
-                ar p "$pkg" data.tar.xz | tar xJ --no-overwrite-dir -C "$cache"
-              done
-              if [ -d "$legacy" ]; then
-                mkdir -p "$target"
-                cp -a "$legacy/." "$target/"
-              fi
-              test -d "$target/usr"'
-      - name: Build Android-native compiler tools
-        run: |
-          docker run --rm --privileged \
-            --user "$(id -u):$(id -g)" \
-            -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
-            -w /home/builder/termux-packages \
-            termux/package-builder \
-            ./build-package.sh -a aarch64 openjdk-21 gradle git cmake ninja clang aapt apksigner
-      - name: Assemble PocketBuild runtime layout
-        run: |
-          set -euo pipefail
-          mkdir -p runtime-root runtime-stage/bin
-          find termux-packages/output -type f -name '*.deb' -print0 | while IFS= read -r -d '' pkg; do
-            dpkg-deb -x "$pkg" runtime-root
-          done
-          prefix=runtime-root/data/data/io.sphynix.pocketbuild/files/runtime
-          test -x "$prefix/usr/bin/bash"
-          test -x "$prefix/usr/lib/jvm/java-21-openjdk/bin/java"
-          cp -a "$prefix/usr" runtime-stage/
-          cat > runtime-stage/bin/pocketbuild <<'EOF'
+          mkdir raw runtime runtime/bin runtime/home runtime/tmp
+          for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
+          cp -a raw/data/data/com.termux/files/. runtime/
+          find runtime -type f -print0 | while IFS= read -r -d '' x; do if patchelf --print-interpreter "$x" >/dev/null 2>&1; then patchelf --set-interpreter /data/data/io.sphynix.pocketbuild/files/runtime/usr/lib/ld-linux-aarch64.so.1 "$x"; fi; done
+          cat > runtime/bin/pocketbuild <<'EOF'
           #!/system/bin/sh
-          set -eu
           RUNTIME="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-          export PREFIX="$RUNTIME"
-          export PATH="$RUNTIME/usr/bin:$PATH"
+          export PREFIX="$RUNTIME" HOME="$RUNTIME/home" TMPDIR="$RUNTIME/tmp"
+          export JAVA_HOME="$RUNTIME/usr/lib/jvm/java-21-openjdk" PATH="$RUNTIME/usr/bin:$PATH"
+          export LD_LIBRARY_PATH="$RUNTIME/usr/lib:$JAVA_HOME/lib"
           exec "$RUNTIME/usr/bin/gradle" "$@"
           EOF
-          chmod 755 runtime-stage/bin/pocketbuild
-          cat > runtime-stage/runtime.json <<'EOF'
-          {"schema":1,"applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild","components":["openjdk-21","gradle","git","cmake","ninja","clang","aapt","apksigner"]}
-          EOF
-          tar -C runtime-stage -czf pocketbuild-runtime-arm64-v8a.tar.gz .
-      - name: Upload compiler runtime artifact
-        uses: actions/upload-artifact@v4
+          chmod 755 runtime/bin/pocketbuild
+          echo '{"schema":1,"applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild"}' > runtime/runtime.json
+          cd runtime; zip -qr ../pocketbuild-runtime-arm64-v8a.zip .
+      - uses: actions/upload-artifact@v4
         with:
           name: pocketbuild-compiler-runtime-arm64-v8a
-          path: pocketbuild-runtime-arm64-v8a.tar.gz
-          if-no-files-found: error
-          retention-days: 14
+          path: pocketbuild-runtime-arm64-v8a.zip
