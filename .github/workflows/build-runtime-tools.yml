@@ -38,6 +38,19 @@ jobs:
           mkdir raw runtime runtime/bin runtime/home runtime/tmp
           for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
           cp -a raw/data/data/com.termux/files/. runtime/
+          python3 - <<'PY'
+          from pathlib import Path
+          old = b"/data/data/com.termux/files"
+          new = b"/data/data/io.sphynix.pocketbuild/files/runtime"
+          for path in Path("runtime").rglob("*"):
+            if not path.is_file():
+              continue
+            data = path.read_bytes()
+            if data.startswith(b"\x7fELF"):
+              continue
+            if old in data:
+              path.write_bytes(data.replace(old, new))
+          PY
           find runtime -type f -print0 | while IFS= read -r -d '' x; do if patchelf --print-interpreter "$x" >/dev/null 2>&1; then patchelf --set-interpreter /data/data/io.sphynix.pocketbuild/files/runtime/usr/lib/ld-linux-aarch64.so.1 "$x"; fi; done
           cat > runtime/bin/pocketbuild <<'EOF'
           #!/system/bin/sh
