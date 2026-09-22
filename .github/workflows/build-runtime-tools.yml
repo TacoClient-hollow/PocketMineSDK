@@ -73,7 +73,19 @@ jobs:
             -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
             -w /home/builder/termux-packages \
             termux/package-builder \
-            bash -lc 'set -eu; cache=/home/builder/.termux-build/_cache-aarch64; mkdir -p "$cache"; for pkg in output/*.deb; do ar p "$pkg" data.tar.xz | tar xJ --no-overwrite-dir -C "$cache"; done'
+            bash -lc 'set -eu
+              cache=/home/builder/.termux-build/_cache-aarch64
+              legacy="$cache/data/data/com.termux/files"
+              target="$cache/data/data/io.sphynix.pocketbuild/files/runtime"
+              mkdir -p "$cache"
+              for pkg in output/*.deb; do
+                ar p "$pkg" data.tar.xz | tar xJ --no-overwrite-dir -C "$cache"
+              done
+              if [ -d "$legacy" ]; then
+                mkdir -p "$target"
+                cp -a "$legacy/." "$target/"
+              fi
+              test -d "$target/usr"'
       - name: Build Android-native compiler tools
         run: |
           docker run --rm --privileged \
