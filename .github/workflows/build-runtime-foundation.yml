@@ -33,21 +33,21 @@ jobs:
 
           dependencies = Path('scripts/build/termux_step_get_dependencies.sh')
           text = dependencies.read_text()
-          needle = '''\t\t\ttermux_run_build-package
-\t\tfi
-\tdone < <(./scripts/buildorder.py'''
-          replacement = '''\t\t\ttermux_run_build-package
-\t\t\tif [[ "$TERMUX_ON_DEVICE_BUILD" == "false" && "$TERMUX_REPO_PKG_FORMAT" == "debian" ]]; then
-\t\t\t\tbuilt_dep="$(find "$TERMUX_OUTPUT_DIR" -maxdepth 1 -type f -name "${PKG}_*_${DEP_ARCH}.deb" -print -quit)"
-\t\t\t\t[[ -n "$built_dep" ]] || termux_error_exit "locally built dependency $PKG was not found"
-\t\t\t\tmkdir -p "$TERMUX_COMMON_CACHEDIR-$DEP_ARCH"
-\t\t\t\t(
-\t\t\t\t\tcd "$TERMUX_COMMON_CACHEDIR-$DEP_ARCH"
-\t\t\t\t\tar p "$built_dep" data.tar.xz | tar xJ --no-overwrite-dir --transform='s#^.$#data#' -C /
-\t\t\t\t)
-\t\t\tfi
-\t\tfi
-\tdone < <(./scripts/buildorder.py'''
+          needle = "\t\t\ttermux_run_build-package\n\t\tfi\n\tdone < <(./scripts/buildorder.py"
+          replacement = (
+              "\t\t\ttermux_run_build-package\n"
+              "\t\t\tif [[ \"$TERMUX_ON_DEVICE_BUILD\" == \"false\" && \"$TERMUX_REPO_PKG_FORMAT\" == \"debian\" ]]; then\n"
+              "\t\t\t\tbuilt_dep=\"$(find \"$TERMUX_OUTPUT_DIR\" -maxdepth 1 -type f -name \"${PKG}_*_${DEP_ARCH}.deb\" -print -quit)\"\n"
+              "\t\t\t\t[[ -n \"$built_dep\" ]] || termux_error_exit \"locally built dependency $PKG was not found\"\n"
+              "\t\t\t\tmkdir -p \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
+              "\t\t\t\t(\n"
+              "\t\t\t\t\tcd \"$TERMUX_COMMON_CACHEDIR-$DEP_ARCH\"\n"
+              "\t\t\t\t\tar p \"$built_dep\" data.tar.xz | tar xJ --no-overwrite-dir --transform='s#^.$#data#' -C /\n"
+              "\t\t\t\t)\n"
+              "\t\t\tfi\n"
+              "\t\tfi\n"
+              "\tdone < <(./scripts/buildorder.py"
+          )
           assert needle in text
           dependencies.write_text(text.replace(needle, replacement, 1))
           PY
