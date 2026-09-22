@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir raw runtime runtime/bin runtime/home runtime/tmp
           for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
-          cp -a raw/data/data/com.termux/files/. runtime/
+          cp -aL raw/data/data/com.termux/files/. runtime/
           python3 - <<'PY'
           from pathlib import Path
           old = b"/data/data/com.termux/files"
