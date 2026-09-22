@@ -14,22 +14,42 @@ jobs:
         with:
           repository: termux/termux-packages
           path: termux-packages
-      - name: Configure PocketBuild private prefix
+      - name: Configure custom build and local dependencies
         working-directory: termux-packages
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          path = Path('scripts/properties.sh')
-          text = path.read_text()
+          properties = Path('scripts/properties.sh')
+          text = properties.read_text()
           changes = {
-            'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
-            'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
-            'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
+              'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
+              'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
+              'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"',
           }
           for old, new in changes.items():
               assert old in text, old
               text = text.replace(old, new, 1)
-          path.write_text(text)
+          properties.write_text(text)
+
+          dependencies = Path('scripts/build/termux_step_get_dependencies.sh')
+          text = dependencies.read_text()
+          needle = '''\t\t\ttermux_run_build-package
+\t\tfi
+\tdone < <(./scripts/buildorder.py'''
+          replacement = '''\t\t\ttermux_run_build-package
+\t\t\tif [[ "$TERMUX_ON_DEVICE_BUILD" == "false" && "$TERMUX_REPO_PKG_FORMAT" == "debian" ]]; then
+\t\t\t\tbuilt_dep="$(find "$TERMUX_OUTPUT_DIR" -maxdepth 1 -type f -name "${PKG}_*_${DEP_ARCH}.deb" -print -quit)"
+\t\t\t\t[[ -n "$built_dep" ]] || termux_error_exit "locally built dependency $PKG was not found"
+\t\t\t\tmkdir -p "$TERMUX_COMMON_CACHEDIR-$DEP_ARCH"
+\t\t\t\t(
+\t\t\t\t\tcd "$TERMUX_COMMON_CACHEDIR-$DEP_ARCH"
+\t\t\t\t\tar p "$built_dep" data.tar.xz | tar xJ --no-overwrite-dir --transform='s#^.$#data#' -C /
+\t\t\t\t)
+\t\t\tfi
+\t\tfi
+\tdone < <(./scripts/buildorder.py'''
+          assert needle in text
+          dependencies.write_text(text.replace(needle, replacement, 1))
           PY
       - name: Build verified runtime foundation
         run: |
@@ -38,7 +58,7 @@ jobs:
             -v "$GITHUB_WORKSPACE/termux-packages:/home/builder/termux-packages" \
             -w /home/builder/termux-packages \
             termux/package-builder \
-            ./build-package.sh -a aarch64 termux-exec bash coreutils libsndfile pulseaudio
+            ./build-package.sh -a aarch64 termux-exec bash coreutils pulseaudio
       - name: Package foundation outputs
         run: |
           set -euo pipefail
