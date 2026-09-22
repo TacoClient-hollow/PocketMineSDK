@@ -1,6 +1,6 @@
 name: Build PocketBuild Compiler Runtime
 on: [workflow_dispatch]
-permissions: {contents: read}
+permissions: {contents: write}
 jobs:
   arm64-runtime:
     runs-on: ubuntu-24.04
@@ -50,6 +50,13 @@ jobs:
           chmod 755 runtime/bin/pocketbuild
           echo '{"schema":1,"applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild"}' > runtime/runtime.json
           cd runtime; zip -qr ../pocketbuild-runtime-arm64-v8a.zip .
+      - name: Publish runtime release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: runtime-v1
+          name: PocketBuild Offline Runtime v1
+          body: Android arm64 offline Java, Gradle, CMake, NDK-compatible build tools, and Git runtime for PocketBuild.
+          files: pocketbuild-runtime-arm64-v8a.zip
       - uses: actions/upload-artifact@v4
         with:
           name: pocketbuild-compiler-runtime-arm64-v8a
