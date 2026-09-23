@@ -1,0 +1,66 @@
+name: Build PocketBuild Native JDK Runtime
+on: [workflow_dispatch]
+permissions: {contents: read}
+jobs:
+  arm64-native-jdk:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: termux/termux-packages
+          path: recipes
+      - name: Install Android cross-build prerequisites
+        working-directory: recipes
+        run: ./scripts/setup-ubuntu.sh
+      - name: Configure PocketBuild-owned prefix
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("recipes/scripts/properties.sh")
+          text = path.read_text()
+          replacements = {
+            'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
+            'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
+            'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"'
+          }
+          for source, target in replacements.items():
+            if source not in text:
+              raise SystemExit("Required package prefix setting was not found")
+            text = text.replace(source, target, 1)
+          path.write_text(text)
+          PY
+      - name: Build native execution base
+        working-directory: recipes
+        run: ./build-package.sh -a aarch64 termux-exec bash coreutils
+      - name: Build Java and Gradle from source recipes
+        working-directory: recipes
+        run: |
+          ./build-package.sh -a aarch64 openjdk-21
+          ./build-package.sh -a aarch64 gradle git cmake ninja clang aapt apksigner
+      - name: Assemble PocketBuild runtime candidate
+        run: |
+          set -e
+          mkdir runtime-root
+          for package in recipes/output/*.deb; do dpkg-deb -x "$package" runtime-root; done
+          RUNTIME=runtime-root/data/data/io.sphynix.pocketbuild/files/runtime
+          test -x "$RUNTIME/usr/lib/jvm/java-21-openjdk/bin/java"
+          test -x "$RUNTIME/usr/opt/gradle/bin/gradle"
+          mkdir -p "$RUNTIME/bin" "$RUNTIME/home" "$RUNTIME/tmp"
+          cat > "$RUNTIME/bin/pocketbuild" <<'EOF'
+          #!/system/bin/sh
+          ROOT="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+          export PREFIX="$ROOT/usr" JAVA_HOME="$ROOT/usr/lib/jvm/java-21-openjdk"
+          export HOME="$ROOT/home" TMPDIR="$ROOT/tmp"
+          export PATH="/system/bin:$PREFIX/bin:$JAVA_HOME/bin"
+          exec "$ROOT/usr/opt/gradle/bin/gradle" "$@"
+          EOF
+          chmod 700 "$RUNTIME/bin/pocketbuild"
+          echo '{"schema":1,"runtimeVersion":"1.0.0-native-jdk","applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild"}' > "$RUNTIME/runtime.json"
+          cd "$RUNTIME"
+          zip -qr "$GITHUB_WORKSPACE/pocketbuild-native-jdk-runtime-arm64-v8a.zip" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pocketbuild-native-jdk-runtime-arm64-v8a
+          path: pocketbuild-native-jdk-runtime-arm64-v8a.zip
+          retention-days: 14
