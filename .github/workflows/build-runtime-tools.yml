@@ -58,7 +58,7 @@ jobs:
             if not path.is_file() or path.name == "symlinks.tsv":
               continue
             data = path.read_bytes()
-            if data.startswith(b"ELF"):
+            if data[:4] == bytes((127, 69, 76, 70)):
               continue
             if old in data:
               path.write_bytes(data.replace(old, new))
