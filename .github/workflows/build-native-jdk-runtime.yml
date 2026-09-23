@@ -20,6 +20,10 @@ jobs:
           curl --fail --location --retry 3 https://dl.google.com/android/repository/android-ndk-r29-linux.zip -o /tmp/android-ndk-r29-linux.zip
           unzip -q /tmp/android-ndk-r29-linux.zip -d "$HOME/lib"
           test -d "$HOME/lib/android-ndk-r29"
+      - name: Prepare compiler data directory
+        run: |
+          sudo mkdir -p /data
+          sudo chmod 777 /data
       - name: Configure PocketBuild-owned prefix
         run: |
           python3 - <<'PY'
