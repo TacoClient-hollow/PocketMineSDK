@@ -43,7 +43,7 @@ jobs:
           PY
       - name: Build native execution base
         working-directory: recipes
-        run: ./build-package.sh -a aarch64 termux-exec bash coreutils
+        run: ./build-package.sh -a aarch64 termux-exec bash
       - name: Build Java and Gradle from source recipes
         working-directory: recipes
         run: |
