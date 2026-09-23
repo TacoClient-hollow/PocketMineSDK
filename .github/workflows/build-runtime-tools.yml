@@ -38,7 +38,7 @@ jobs:
           mkdir raw runtime runtime/bin runtime/home runtime/tmp
           for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
           cp -a raw/data/data/com.termux/files/. runtime/
-          find raw/data/data/com.termux/files -type l -printf '%P\t%l\n' > runtime/symlinks.tsv
+          find raw/data/data/com.termux/files \( -path '*/usr/lib/*' -o -path '*/usr/opt/*' -o -path '*/usr/bin/*' \) -type l -printf '%P\t%l\n' > runtime/symlinks.tsv
           python3 - <<'PY'
           from pathlib import Path
           old = b"/data/data/com.termux/files"
