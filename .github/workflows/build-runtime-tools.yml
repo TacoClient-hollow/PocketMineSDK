@@ -37,7 +37,11 @@ jobs:
         run: |
           mkdir raw runtime runtime/bin runtime/home runtime/tmp
           for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
-          cp -aL raw/data/data/com.termux/files/. runtime/
+          cp -a raw/data/data/com.termux/files/. runtime/
+          rm runtime/usr/bin/sh runtime/usr/bin/gradle
+          cp -L raw/data/data/com.termux/files/usr/bin/sh runtime/usr/bin/sh
+          cp raw/data/data/com.termux/files/usr/opt/gradle/bin/gradle runtime/usr/bin/gradle
+          chmod 755 runtime/usr/bin/sh runtime/usr/bin/gradle
           python3 - <<'PY'
           from pathlib import Path
           old = b"/data/data/com.termux/files"
