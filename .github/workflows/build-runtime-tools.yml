@@ -38,25 +38,41 @@ jobs:
           mkdir raw runtime runtime/bin runtime/home runtime/tmp
           for x in debs/*.deb; do dpkg-deb -x "$x" raw; done
           cp -a raw/data/data/com.termux/files/. runtime/
-          find raw/data/data/com.termux/files \( -path '*/usr/lib/*' -o -path '*/usr/opt/*' -o -path '*/usr/bin/*' \) -type l -printf '%P\t%l\n' > runtime/symlinks.tsv
+          python3 - <<'PY'
+          from pathlib import Path
+          base = Path("raw/data/data/com.termux/files")
+          wanted = ("usr/lib/", "usr/opt/", "usr/bin/")
+          with Path("runtime/symlinks.tsv").open("w") as out:
+            for path in base.rglob("*"):
+              if not path.is_symlink():
+                continue
+              relative = path.relative_to(base).as_posix()
+              if relative.startswith(wanted):
+                print(relative, path.readlink().as_posix(), sep=chr(9), file=out)
+          PY
           python3 - <<'PY'
           from pathlib import Path
           old = b"/data/data/com.termux/files"
           new = b"/data/data/io.sphynix.pocketbuild/files/runtime"
           for path in Path("runtime").rglob("*"):
-            if not path.is_file():
+            if not path.is_file() or path.name == "symlinks.tsv":
               continue
             data = path.read_bytes()
-            if data.startswith(b"\x7fELF"):
+            if data.startswith(b"ELF"):
               continue
             if old in data:
               path.write_bytes(data.replace(old, new))
           PY
-          find runtime -type f -print0 | while IFS= read -r -d '' x; do if patchelf --print-interpreter "$x" >/dev/null 2>&1; then patchelf --set-interpreter /data/data/io.sphynix.pocketbuild/files/runtime/usr/lib/ld-linux-aarch64.so.1 "$x"; fi; done
+          find runtime -type f -print0 | while IFS= read -r -d '' x; do
+            interpreter="$(patchelf --print-interpreter "$x" 2>/dev/null || true)"
+            if [ "$interpreter" = "/data/data/com.termux/files/usr/lib/ld-linux-aarch64.so.1" ]; then
+              patchelf --set-interpreter /data/data/io.sphynix.pocketbuild/files/runtime/usr/lib/ld-linux-aarch64.so.1 "$x"
+            fi
+          done
           cat > runtime/bin/pocketbuild <<'EOF'
           #!/system/bin/sh
           RUNTIME="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-          export PREFIX="$RUNTIME" HOME="$RUNTIME/home" TMPDIR="$RUNTIME/tmp"
+          export PREFIX="$RUNTIME/usr" HOME="$RUNTIME/home" TMPDIR="$RUNTIME/tmp"
           export JAVA_HOME="$RUNTIME/usr/lib/jvm/java-21-openjdk" PATH="/system/bin:/system/xbin:$RUNTIME/usr/bin"
           export LD_LIBRARY_PATH="$RUNTIME/usr/lib:$JAVA_HOME/lib"
           exec /system/bin/sh "$RUNTIME/usr/opt/gradle/bin/gradle" "$@"
