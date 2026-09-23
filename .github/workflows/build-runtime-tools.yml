@@ -60,9 +60,9 @@ jobs:
           #!/system/bin/sh
           RUNTIME="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
           export PREFIX="$RUNTIME" HOME="$RUNTIME/home" TMPDIR="$RUNTIME/tmp"
-          export JAVA_HOME="$RUNTIME/usr/lib/jvm/java-21-openjdk" PATH="$RUNTIME/usr/bin:$PATH"
+          export JAVA_HOME="$RUNTIME/usr/lib/jvm/java-21-openjdk" PATH="/system/bin:/system/xbin:$RUNTIME/usr/bin"
           export LD_LIBRARY_PATH="$RUNTIME/usr/lib:$JAVA_HOME/lib"
-          exec "$RUNTIME/usr/bin/gradle" "$@"
+          exec /system/bin/sh "$RUNTIME/usr/opt/gradle/bin/gradle" "$@"
           EOF
           chmod 755 runtime/bin/pocketbuild
           echo '{"schema":1,"applicationId":"io.sphynix.pocketbuild","abi":"arm64-v8a","entrypoint":"bin/pocketbuild"}' > runtime/runtime.json
