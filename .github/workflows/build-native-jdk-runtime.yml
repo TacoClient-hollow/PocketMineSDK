@@ -40,6 +40,7 @@ jobs:
           path.write_text(text)
           PY
           printf '%s\n' 'TERMUX_PKG_EXTRA_CONFIGURE_ARGS+=" --disable-nsenter"' >> recipes/packages/util-linux/build.sh
+          sed -i 's/rm -r /rm -rf /' recipes/packages/xcb-proto/build.sh
       - name: Build native execution base
         working-directory: recipes
         run: ./build-package.sh -a aarch64 termux-exec bash
