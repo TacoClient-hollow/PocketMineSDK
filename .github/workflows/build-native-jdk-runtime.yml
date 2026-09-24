@@ -24,23 +24,24 @@ jobs:
         run: |
           sudo mkdir -p /data
           sudo chmod 777 /data
-      - name: Configure PocketBuild-owned prefix
+      - name: Configure PocketBuild-owned prefix and Android-safe utilities
         run: |
           python3 - <<'PY'
           from pathlib import Path
           path = Path("recipes/scripts/properties.sh")
           text = path.read_text()
-          replacements = {
+          for source, target in {
             'TERMUX__NAME="Termux"': 'TERMUX__NAME="PocketBuild"',
             'TERMUX_APP__PACKAGE_NAME="com.termux"': 'TERMUX_APP__PACKAGE_NAME="io.sphynix.pocketbuild"',
             'TERMUX__ROOTFS_SUBDIR="files"': 'TERMUX__ROOTFS_SUBDIR="files/runtime"'
-          }
-          for source, target in replacements.items():
-            if source not in text:
-              raise SystemExit("Required package prefix setting was not found")
+          }.items():
+            if source not in text: raise SystemExit("Required package prefix setting was not found")
             text = text.replace(source, target, 1)
           path.write_text(text)
           PY
+          printf '
+TERMUX_PKG_EXTRA_CONFIGURE_ARGS+=" --disable-nsenter"
+' >> recipes/packages/util-linux/build.sh
       - name: Build native execution base
         working-directory: recipes
         run: ./build-package.sh -a aarch64 termux-exec bash
