@@ -39,9 +39,7 @@ jobs:
             text = text.replace(source, target, 1)
           path.write_text(text)
           PY
-          printf '
-TERMUX_PKG_EXTRA_CONFIGURE_ARGS+=" --disable-nsenter"
-' >> recipes/packages/util-linux/build.sh
+          printf '%s\n' 'TERMUX_PKG_EXTRA_CONFIGURE_ARGS+=" --disable-nsenter"' >> recipes/packages/util-linux/build.sh
       - name: Build native execution base
         working-directory: recipes
         run: ./build-package.sh -a aarch64 termux-exec bash
